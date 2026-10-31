@@ -142,7 +142,6 @@
   </div>
 
   <script>
-    // ★ここに取得したGoogle Cloud Translation APIキーを設定してください★
     const GOOGLE_API_KEY = "AIzaSyA0L_MNmvJbslFtezRmNSReOuvDO7DVQzQ";
 
     const startBtn = document.getElementById('startBtn');
@@ -159,65 +158,74 @@
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert('お使いのブラウザは音声認識に対応していません。Google Chrome（PC/Android）またはSafari（iOS/Mac）をご利用ください。');
+      alert('お使いのブラウザは音声認識に対応していません。Google ChromeまたはSafariをご利用ください。');
     } else {
-      recognition = new SpeechRecognition();
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.continuous = false;
-
-      recognition.onstart = () => {
-        isListening = true;
-        startBtn.textContent = '停止する';
-        startBtn.classList.add('listening');
-        statusText.textContent = '音声認識中... 話してください';
-        
-        const msg = document.getElementById('statusMsg');
-        if (msg) msg.remove();
-      };
-
-      recognition.onend = () => {
-        if (interimDiv) { interimDiv.remove(); interimDiv = null; }
-
-        if (isListening && modeSelect.value === 'seminar') {
-          setTimeout(() => {
-            try {
-              recognition.start();
-            } catch(e) {
-              console.log("再起動待機中...", e);
-            }
-          }, 100);
-        } else {
-          isListening = false;
-          startBtn.textContent = '翻訳開始 / 音声認識スタート';
-          startBtn.classList.remove('listening');
-          statusText.textContent = '停止中';
+      function initRecognition() {
+        if (recognition) {
+          try { recognition.abort(); } catch(e){}
         }
-      };
+        recognition = new SpeechRecognition();
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.continuous = (modeSelect.value === 'seminar');
+        recognition.lang = langSelect.value;
 
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error', event.error);
-        if (event.error === 'not-allowed') {
-          alert('マイクの利用が許可されていません。ブラウザの設定を確認してください。');
-          isListening = false;
-        }
-      };
+        recognition.onstart = () => {
+          isListening = true;
+          startBtn.textContent = '停止する';
+          startBtn.classList.add('listening');
+          statusText.textContent = '🎤 音声認識中... はっきりと話してください';
+          
+          const msg = document.getElementById('statusMsg');
+          if (msg) msg.remove();
+        };
 
-      recognition.onresult = async (event) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
+        recognition.onend = () => {
+          if (interimDiv) { interimDiv.remove(); interimDiv = null; }
 
-        for (let i = 0; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+          if (isListening && modeSelect.value === 'seminar') {
+            setTimeout(() => {
+              if (isListening) {
+                try {
+                  recognition.start();
+                } catch(e) {
+                  console.log("再接続中...", e);
+                }
+              }
+            }, 300);
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            isListening = false;
+            startBtn.textContent = '翻訳開始 / 音声認識スタート';
+            startBtn.classList.remove('listening');
+            statusText.textContent = '停止中';
           }
-        }
+        };
 
-        if (interimTranscript !== '') {
-          showInterim(interimTranscript);
-        }
+        recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error);
+          if (event.error === 'not-allowed') {
+            alert('マイクの利用が拒否されています。ブラウザの設定でマイクアクセスを「許可」に変更してください。');
+            isListening = false;
+          } else if (event.error === 'network') {
+            statusText.textContent = 'ネットワークエラー（音声認識サーバーに接続できません）';
+          }
+        };
+
+        recognition.onresult = async (event) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+
+          if (interimTranscript !== '') {
+            showInterim(interimTranscript);
+          }
 
         if (finalTranscript !== '') {
           if (interimDiv) { interimDiv.remove(); interimDiv = null; }
@@ -230,37 +238,43 @@
 
           if (modeSelect.value === 'conversation') {
             isListening = false;
-            recognition.stop();
+            try { recognition.stop(); } catch(e){}
           }
 
           const translatedText = await translateText(finalTranscript, sourceLang, targetLang);
           appendLog(translatedText, 'translated');
+          statusText.textContent = isListening ? '🎤 音声認識中... はっきりと話してください' : '停止中';
         }
       };
     }
 
     startBtn.addEventListener('click', () => {
-      if (!recognition) return;
-      if (GOOGLE_API_KEY === "YOUR_API_KEY_HERE" || !GOOGLE_API_KEY) {
-        alert("Google Cloud APIキーが設定されていません。コード内の GOOGLE_API_KEY を取得したキーに変更してください。");
-        return;
-      }
+      if (!SpeechRecognition) return;
 
       if (isListening) {
         isListening = false;
-        recognition.stop();
+        try { recognition.stop(); } catch(e){}
       } else {
-        const selectedLang = langSelect.value;
-        recognition.lang = selectedLang;
-        
-        const msg = document.getElementById('statusMsg');
-        if (msg) msg.remove();
-
+        initRecognition();
         try {
           recognition.start();
         } catch(e) {
-          console.error(e);
+          console.error("開始エラー:", e);
         }
+      }
+    });
+
+    langSelect.addEventListener('change', () => {
+      if (isListening) {
+        isListening = false;
+        try { recognition.stop(); } catch(e){}
+      }
+    });
+
+    modeSelect.addEventListener('change', () => {
+      if (isListening) {
+        isListening = false;
+        try { recognition.stop(); } catch(e){}
       }
     });
 
@@ -269,7 +283,6 @@
       interimDiv = null;
     });
 
-    // Google Cloud Translation API（公式）を利用した翻訳関数
     async function translateText(text, sourceLang, targetLang) {
       try {
         const url = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_API_KEY}`;
@@ -285,8 +298,6 @@
         });
 
         if (!res.ok) {
-          const errData = await res.json();
-          console.error('API Error Response:', errData);
           throw new Error('API Request Failed');
         }
 
@@ -294,7 +305,7 @@
         return data.data.translations[0].translatedText;
       } catch (error) {
         console.error('Translation error:', error);
-        return '【翻訳エラーが発生しました（APIキーや制限をご確認ください）】';
+        return '【翻訳エラーが発生しました】';
       }
     }
 
@@ -315,6 +326,7 @@
       interimDiv.textContent = '... ' + text;
       outputBox.scrollTop = outputBox.scrollHeight;
     }
+  }
   </script>
 </body>
 </html>
